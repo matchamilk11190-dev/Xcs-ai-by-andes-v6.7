@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Ultra - High Graphics + Real API</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gemini: {
+                            bg: '#0e0f12',
+                            sidebar: '#16181d',
+                            surface: '#1c1f26',
+                            accent: '#8ab4f8',
+                            purple: '#c58af9'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked.js for Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #0e0f12; color: #e3e3e3;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        #bgCanvas {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 0;
+        }
+        .glass {
+            background: rgba(22, 24, 29, 0.68);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-pill {
+            background: rgba(28, 31, 38, 0.78);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .gemini-gradient-text {
+            background: linear-gradient(135deg, #4285f4, #9b72cb, #d96570);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .gemini-gradient-bg {
+            background: linear-gradient(135deg, #4285f4, #9b72cb, #d96570);
+        }
+        .ai-response-text pre { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; border: 1px solid rgba(255,255,255,0.1); }
+        .ai-response-text code { font-family: monospace; font-size: 0.9em; color: #8ab4f8; }
+        .ai-response-text p { margin-bottom: 8px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    </style>
+</head>
+<body class="flex h-screen w-screen relative">
+
+    <canvas id="bgCanvas"></canvas>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="glass w-64 h-full flex flex-col justify-between z-20 transition-all duration-300 transform -translate-x-full md:translate-x-0">
+        <div class="p-4 flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <button onclick="toggleSidebar()" class="p-2 hover:bg-white/10 rounded-full transition md:hidden">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                </button>
+                <button onclick="newChat()" class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/15 transition text-sm font-medium w-fit">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Đoạn chat mới
+                </button>
+            </div>
+            
+            <div class="mt-4">
+                <div class="text-xs font-semibold text-gray-400 px-2 mb-2">Gần đây</div>
+                <div class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto" id="historyList">
+                    <a href="#" onclick="restoreSession(0); return false;" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 text-sm truncate text-gray-300">
+                        <i data-lucide="message-square" class="w-4 h-4 shrink-0 text-gray-400"></i> Code UI Gemini 3D
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-white/10 flex flex-col gap-2">
+            <button onclick="openApiModal()" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 text-sm text-gemini-accent text-left w-full">
+                <i data-lucide="key" class="w-4 h-4"></i> Cấu hình API Key
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Container -->
+    <main class="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
+        
+        <!-- Top bar -->
+        <header class="flex items-center justify-between px-6 py-4 z-20">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="p-2 hover:bg-white/10 rounded-full transition md:hidden">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                </button>
+                <div class="flex items-center gap-2 text-lg font-semibold tracking-wide">
+                    <span class="gemini-gradient-text" id="brandTitle">Gemini</span>
+                    <span id="activeModelBadge" class="text-xs px-2 py-0.5 rounded-full glass text-gemini-accent font-normal">gemini-1.5-flash</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="openApiModal()" class="px-3 py-1.5 rounded-full glass text-xs text-gray-300 hover:text-white flex items-center gap-1.5">
+                    <i data-lucide="settings-2" class="w-3.5 h-3.5 text-gemini-accent"></i> <span id="currentProviderLabel">Gemini API</span>
+                </button>
+                <div class="w-8 h-8 rounded-full gemini-gradient-bg flex items-center justify-center text-xs font-bold text-white shadow-lg">H</div>
+            </div>
+        </header>
+
+        <!-- Chat Stream Area -->
+        <div id="chatContainer" class="flex-1 overflow-y-auto px-4 md:px-24 lg:px-64 py-6 flex flex-col gap-6">
+            <div id="welcomeScreen" class="flex flex-col items-start gap-2 mt-12 transition-opacity duration-500">
+                <h1 class="text-4xl md:text-5xl font-semibold gemini-gradient-text tracking-tight">Chào Hiếu,</h1>
+                <p class="text-3xl md:text-4xl font-semibold text-gray-500">Hôm nay tôi giúp gì cho bạn?</p>
+            </div>
+        </div>
+
+        <!-- Input Area Footer -->
+        <footer class="p-4 md:px-24 lg:px-64 pb-6 z-20">
+            <div class="glass-pill rounded-3xl p-3 flex flex-col gap-2 transition-all focus-within:border-gemini-accent/50 focus-within:shadow-[0_0_25px_rgba(138,180,248,0.15)]">
+                <textarea id="promptInput" rows="1" placeholder="Nhập lời nhắc..." 
+                    class="w-full bg-transparent resize-none outline-none text-gray-200 placeholder-gray-500 px-3 py-1.5 max-h-32 text-sm md:text-base"
+                    oninput="autoResize(this)" onkeydown="handleKeyDown(event)"></textarea>
+                
+                <div class="flex items-center justify-between px-2 pt-1 border-t border-white/5">
+                    <div class="flex items-center gap-1">
+                        <button class="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition" title="Thêm tệp">
+                            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <button id="sendBtn" onclick="sendMessage()" class="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white transition disabled:opacity-40 disabled:pointer-events-none" disabled>
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="text-center text-[11px] text-gray-500 mt-2">
+                Hỗ trợ Multi-turn context & Markdown rendering.
+            </div>
+        </footer>
+
+    </main>
+
+    <!-- API Config Modal -->
+    <div id="apiModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="glass w-full max-w-md rounded-2xl p-6 flex flex-col gap-4 border border-white/15 shadow-2xl">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                    <i data-lucide="key" class="w-5 h-5 text-gemini-accent"></i> Cấu hình AI Provider
+                </h3>
+                <button onclick="closeApiModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="flex flex-col gap-3">
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Chọn Provider</label>
+                    <select id="providerSelect" onchange="onProviderChange()" class="w-full bg-[#16181d] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none">
+                        <option value="gemini">Google Gemini API</option>
+                        <option value="grok">xAI Grok API</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block" id="apiKeyLabel">Gemini API Key</label>
+                    <input type="password" id="apiKeyInput" placeholder="Dán API Key vào đây..." class="w-full bg-[#16181d] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-gemini-accent">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Model ID</label>
+                    <input type="text" id="modelInput" value="gemini-1.5-flash" class="w-full bg-[#16181d] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-2">
+                <button onclick="closeApiModal()" class="px-4 py-2 rounded-xl bg-white/10 text-sm hover:bg-white/15">Hủy</button>
+                <button onclick="saveApiConfig()" class="px-4 py-2 rounded-xl gemini-gradient-bg text-sm font-semibold text-white shadow-lg">Lưu cấu hình</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        let currentProvider = localStorage.getItem('ai_provider') || 'gemini';
+        let geminiKey = localStorage.getItem('gemini_key') || '';
+        let grokKey = localStorage.getItem('grok_key') || '';
+        let currentModel = localStorage.getItem('ai_model') || 'gemini-1.5-flash';
+        let conversationHistory = [];
+
+        updateHeaderBadge();
+
+        function updateHeaderBadge() {
+            document.getElementById('currentProviderLabel').textContent = currentProvider === 'gemini' ? 'Gemini API' : 'Grok API';
+            document.getElementById('brandTitle').textContent = currentProvider === 'gemini' ? 'Gemini' : 'Grok';
+            document.getElementById('activeModelBadge').textContent = currentModel;
+        }
+
+        function openApiModal() {
+            document.getElementById('providerSelect').value = currentProvider;
+            onProviderChange();
+            document.getElementById('apiKeyInput').value = currentProvider === 'gemini' ? geminiKey : grokKey;
+            document.getElementById('modelInput').value = currentModel;
+            document.getElementById('apiModal').classList.remove('hidden');
+        }
+
+        function closeApiModal() {
+            document.getElementById('apiModal').classList.add('hidden');
+        }
+
+        function onProviderChange() {
+            const provider = document.getElementById('providerSelect').value;
+            const label = document.getElementById('apiKeyLabel');
+            const modelInput = document.getElementById('modelInput');
+            if (provider === 'gemini') {
+                label.textContent = 'Gemini API Key';
+                modelInput.value = currentModel.includes('grok') ? 'gemini-1.5-flash' : currentModel;
+                document.getElementById('apiKeyInput').value = geminiKey;
+            } else {
+                label.textContent = 'xAI Grok API Key (xai-...)';
+                modelInput.value = currentModel.includes('gemini') ? 'grok-2-latest' : currentModel;
+                document.getElementById('apiKeyInput').value = grokKey;
+            }
+        }
+
+        function saveApiConfig() {
+            currentProvider = document.getElementById('providerSelect').value;
+            const keyVal = document.getElementById('apiKeyInput').value.trim();
+            currentModel = document.getElementById('modelInput').value.trim() || (currentProvider === 'gemini' ? 'gemini-1.5-flash' : 'grok-2-latest');
+
+            if (currentProvider === 'gemini') {
+                geminiKey = keyVal;
+                localStorage.setItem('gemini_key', geminiKey);
+            } else {
+                grokKey = keyVal;
+                localStorage.setItem('grok_key', grokKey);
+            }
+            localStorage.setItem('ai_provider', currentProvider);
+            localStorage.setItem('ai_model', currentModel);
+            updateHeaderBadge();
+            closeApiModal();
+        }
+
+        // --- CANVAS GRAPHICS ---
+        const canvas = document.getElementById('bgCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let particles = [];
+        let mouse = { x: -1000, y: -1000, radius: 180 };
+
+        function resizeCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.6;
+                this.vy = (Math.random() - 0.5) * 0.6;
+                this.size = Math.random() * 2 + 0.8;
+                this.baseAlpha = Math.random() * 0.5 + 0.2;
+                this.color = Math.random() > 0.5 ? '#8ab4f8' : '#c58af9';
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+                let dx = mouse.x - this.x, dy = mouse.y - this.y;
+                let dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < mouse.radius) {
+                    let force = (mouse.radius - dist) / mouse.radius;
+                    this.x -= (dx / dist) * force * 2; this.y -= (dy / dist) * force * 2;
+                }
+            }
+            draw() {
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color; ctx.globalAlpha = this.baseAlpha;
+                ctx.shadowBlur = 10; ctx.shadowColor = this.color; ctx.fill();
+            }
+        }
+
+        const particleCount = Math.min(Math.floor((window.innerWidth * window.innerHeight) / 12000), 100);
+        for (let i = 0; i < particleCount; i++) particles.push(new Particle());
+
+        function animateBg() {
+            ctx.clearRect(0, 0, width, height);
+            let time = Date.now() * 0.001;
+            let cx1 = width * 0.3 + Math.sin(time * 0.5) * 150, cy1 = height * 0.3 + Math.cos(time * 0.3) * 100;
+            let grad1 = ctx.createRadialGradient(cx1, cy1, 10, cx1, cy1, 400);
+            grad1.addColorStop(0, 'rgba(66, 133, 244, 0.08)'); grad1.addColorStop(1, 'transparent');
+            ctx.fillStyle = grad1; ctx.globalAlpha = 1; ctx.fillRect(0, 0, width, height);
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update(); particles[i].draw();
+                for (let j = i + 1; j < particles.length; j++) {
+                    let dx = particles[i].x - particles[j].x, dy = particles[i].y - particles[j].y;
+                    let dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 130) {
+                        ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y); ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = '#8ab4f8'; ctx.globalAlpha = (1 - dist / 130) * 0.15; ctx.lineWidth = 0.8; ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animateBg);
+        }
+        animateBg();
+
+        // --- CHAT LOGIC & API CALLS ---
+        const promptInput = document.getElementById('promptInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const chatContainer = document.getElementById('chatContainer');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+
+        promptInput.addEventListener('input', function() {
+            sendBtn.disabled = this.value.trim() === '';
+            sendBtn.className = this.value.trim() !== '' 
+                ? 'p-2.5 rounded-full bg-gemini-accent text-gray-900 transition' 
+                : 'p-2.5 rounded-full bg-white/10 text-gray-300 transition opacity-40 pointer-events-none';
+        });
+
+        function autoResize(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight) + 'px'; }
+        function handleKeyDown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendBtn.disabled) sendMessage(); } }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
+        function newChat() { chatContainer.innerHTML = ''; conversationHistory = []; }
+
+        function appendMessage(sender, text) {
+            if (welcomeScreen && welcomeScreen.parentNode) {
+                welcomeScreen.style.opacity = '0';
+                setTimeout(() => welcomeScreen.remove(), 400);
+            }
+            const isUser = sender === 'user';
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex ${isUser ? 'justify-end' : 'justify-start'} w-full`;
+
+            const msgDiv = document.createElement('div');
+            if (isUser) {
+                msgDiv.className = 'glass-pill max-w-[80%] md:max-w-[70%] px-5 py-3 rounded-2xl rounded-tr-sm text-sm md:text-base text-gray-100 leading-relaxed';
+                msgDiv.textContent = text;
+            } else {
+                msgDiv.className = 'flex gap-4 max-w-[90%] md:max-w-[85%] leading-relaxed text-sm md:text-base text-gray-200';
+                msgDiv.innerHTML = `
+                    <div class="w-8 h-8 rounded-full gemini-gradient-bg flex items-center justify-center shrink-0 shadow-md mt-1">
+                        <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"/></svg>
+                    </div>
+                    <div class="glass flex-1 p-4 rounded-2xl rounded-tl-sm text-gray-200 space-y-2 ai-response-text"></div>
+                `;
+            }
+            wrapper.appendChild(msgDiv);
+            chatContainer.appendChild(wrapper);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return msgDiv.querySelector('.ai-response-text');
+        }
+
+        async function fetchAIResponse() {
+            const activeKey = currentProvider === 'gemini' ? geminiKey : grokKey;
+            if (!activeKey) {
+                return `⚠️ Bạn chưa nhập API Key cho ${currentProvider.toUpperCase()}. Nhấn cấu hình Key ở góc dưới sidebar!`;
+            }
+
+            try {
+                if (currentProvider === 'gemini') {
+                    const formattedContents = conversationHistory.map(m => ({
+                        role: m.role === 'assistant' ? 'model' : 'user',
+                        parts: [{ text: m.content }]
+                    }));
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${activeKey}`;
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: formattedContents })
+                    });
+                    const data = await res.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Không nhận được phản hồi từ Gemini API.";
+                } else {
+                    const formattedMessages = conversationHistory.map(m => ({
+                        role: m.role === 'assistant' ? 'assistant' : 'user',
+                        content: m.content
+                    }));
+                    const url = `https://api.x.ai/v1/chat/completions`;
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${activeKey}`
+                        },
+                        body: JSON.stringify({
+                            model: currentModel,
+                            messages: formattedMessages
+                        })
+                    });
+                    const data = await res.json();
+                    return data.choices?.[0]?.message?.content || "Không nhận được phản hồi từ xAI Grok API.";
+                }
+            } catch (err) {
+                return `Lỗi kết nối API: ${err.message}`;
+            }
+        }
+
+        function renderMarkdown(element, markdownText) {
+            element.innerHTML = marked.parse(markdownText);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const text = promptInput.value.trim();
+            if (!text) return;
+
+            appendMessage('user', text);
+            conversationHistory.push({ role: 'user', content: text });
+            
+            promptInput.value = '';
+            promptInput.style.height = 'auto';
+            sendBtn.disabled = true;
+
+            const aiTextElement = appendMessage('ai', 'Đang suy nghĩ...');
+            const aiReply = await fetchAIResponse();
+            conversationHistory.push({ role: 'assistant', content: aiReply });
+            renderMarkdown(aiTextElement, aiReply);
+        }
+    </script>
+
+    <!-- UNIVERSAL FOV & VIEWFINDER EXTENSION (PC & MOBILE) -->
+    <style>
+      button, .glass-pill {
+        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease !important;
+      }
+      button:active, .glass-pill:active {
+        transform: scale(0.91) !important;
+        box-shadow: 0 0 25px rgba(138, 180, 248, 0.6), inset 0 0 10px rgba(255,255,255,0.2) !important;
+      }
+      body {
+        perspective: 1100px;
+      }
+      main {
+        transform-style: preserve-3d;
+        transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .spatial-fov-120 { transform: scale(1.06) translateZ(-25px); }
+      .spatial-fov-140 { transform: scale(1.16) translateZ(-55px); }
+      .spatial-fov-160 { transform: scale(1.30) translateZ(-85px) rotateX(1deg); }
+
+      #fovViewfinder {
+        position: fixed; inset: 0; pointer-events: none; z-index: 15;
+        opacity: 0; transition: opacity 0.4s ease;
+        box-shadow: inset 0 0 100px rgba(0,0,0,0.65), inset 0 0 30px rgba(138, 180, 248, 0.12);
+      }
+      #fovViewfinder.active { opacity: 1; }
+      #fovViewfinder::before, #fovViewfinder::after {
+        content: ''; position: absolute; width: 18px; height: 18px; border-color: rgba(138,180,248,0.45); border-style: solid;
+      }
+      #fovViewfinder::before { top: 12px; left: 12px; border-width: 1.5px 0 0 1.5px; }
+      #fovViewfinder::after { top: 12px; right: 12px; border-width: 1.5px 1.5px 0 0; }
+
+      #fovControlDock {
+        position: fixed;
+        top: 14px;
+        right: 150px;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(14, 15, 18, 0.82);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      }
+      @media (max-width: 768px) {
+        #fovControlDock { right: 12px; top: 12px; }
+      }
+      .fov-btn {
+        padding: 3px 9px;
+        border-radius: 999px;
+        color: #9ca3af;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .fov-btn.active {
+        background: linear-gradient(135deg, #4285f4, #9b72cb);
+        color: white;
+        font-weight: 600;
+      }
+    </style>
+
+    <div id="fovViewfinder"></div>
+
+    <div id="fovControlDock">
+      <span style="color: #8ab4f8; margin-right: 2px; font-weight: 500;">FOV:</span>
+      <button class="fov-btn active" onclick="setUniversalFOV(0, this)">Std</button>
+      <button class="fov-btn" onclick="setUniversalFOV(120, this)">120°</button>
+      <button class="fov-btn" onclick="setUniversalFOV(140, this)">140°</button>
+      <button class="fov-btn" onclick="setUniversalFOV(160, this)">160°</button>
+    </div>
+
+    <script>
+      function setUniversalFOV(deg, btnEl) {
+        document.querySelectorAll('.fov-btn').forEach(b => b.classList.remove('active'));
+        btnEl.classList.add('active');
+
+        const mainEl = document.querySelector('main');
+        const vf = document.getElementById('fovViewfinder');
+        if (!mainEl) return;
+
+        mainEl.classList.remove('spatial-fov-120', 'spatial-fov-140', 'spatial-fov-160');
+        if (deg > 0) {
+          mainEl.classList.add(`spatial-fov-${deg}`);
+          if(vf) vf.classList.add('active');
+        } else {
+          if(vf) vf.classList.remove('active');
+        }
+
+        if (typeof mouse !== 'undefined') {
+          mouse.radius = deg === 0 ? 180 : 180 + (deg - 100) * 2.2;
+        }
+      }
+    </script>
+</body>
+</html>
